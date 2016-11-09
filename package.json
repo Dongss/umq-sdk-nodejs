@@ -1,0 +1,27 @@
+{
+  "name": "umq-nodejs-sdk",
+  "version": "0.1.0",
+  "description": "umq的javascript sdk",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ucloud/umq-nodejs-sdk.git"
+  },
+  "keywords": [
+    "umq",
+    "sdk"
+  ],
+  "author": "wushukai",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ucloud/umq-nodejs-sdk/issues"
+  },
+  "homepage": "https://github.com/ucloud/umq-nodejs-sdk#readme",
+  "dependencies": {
+    "request": "^2.78.0",
+    "ws": "^1.1.1"
+  }
+}

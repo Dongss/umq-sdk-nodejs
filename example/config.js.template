@@ -1,0 +1,14 @@
+module.exports = {
+  Host: "YOUR HOST",
+  Region: "Region, e.g. cn-bj2",
+  Account: "YOUR ACCOUNT",
+  ProjectId: "YOUR PROJECT ID",
+  PublicKey: "PUBLIC KEY OF YOUR ACCOUNT",
+  PrivateKey: "PRIVATE KEY OF YOUR ACCOUNT",
+  
+  ProducerId: "YOUR PRODUCER ID",
+  ProducerToken: "YOUR PRODUCER TOKEN",
+  ConsumerId: "YOUR CONSUMER ID",
+  ConsumerToken: "YOUR CONSUMER TOKEN",
+  Topic: "YOUR TOPIC",
+}
