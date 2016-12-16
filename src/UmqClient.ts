@@ -17,9 +17,9 @@ enum UmqRequestErrorCode {
 
 
 export class UmqClient {
-  _projectId: string;
-  _host: string;
-  _r: request.RequestWrapper;
+  private _projectId: string;
+  private _host: string;
+  private _r: request.RequestWrapper;
 
   constructor(config: UmqClientConfig) {
     this._projectId = config.projectId;
@@ -50,10 +50,10 @@ export class UmqClient {
   }
 }
 
-class Producer {
-  _authToken: string;
-  _projectId: string;
-  _r: request.RequestWrapper;
+export class Producer {
+  private _authToken: string;
+  private _projectId: string;
+  private _r: request.RequestWrapper;
 
   constructor(r: request.RequestWrapper,
     projectId: string, producerId: string, producerToken: string) {
@@ -90,10 +90,10 @@ function ackMessage(r: request.RequestWrapper,
     });
 }
 
-class Consumer {
-  _r: request.RequestWrapper;
-  _projectId: string;
-  _authToken: string;
+export class Consumer {
+  private _r: request.RequestWrapper;
+  private _projectId: string;
+  private _authToken: string;
 
   constructor(r: request.RequestWrapper,
     host: string, projectId: string, consumerId: string, consumerToken: string) {
@@ -131,18 +131,18 @@ class Consumer {
 
 type SubscriptionState = "closed" | "connecting" | "connected";
 
-class Subscription extends event.EventEmitter {
-  _r: request.RequestWrapper;
-  _url: string;
-  _topic: string;
-  _projectId: string;
-  _authToken: string;
-  _ws: WebSocket;
-  _prefetchCount: number;
-  _state: SubscriptionState;
-  _permits: number;
-  _retryTimes: number;
-  _retryDuration: number;
+export class Subscription extends event.EventEmitter {
+  private _r: request.RequestWrapper;
+  private _url: string;
+  private _topic: string;
+  private _projectId: string;
+  private _authToken: string;
+  private _ws: WebSocket;
+  private _prefetchCount: number;
+  private _state: SubscriptionState;
+  private _permits: number;
+  private _retryTimes: number;
+  private _retryDuration: number;
 
 
   constructor(url: string, r: request.RequestWrapper,
@@ -171,7 +171,7 @@ class Subscription extends event.EventEmitter {
     this.removeAllListeners();
   }
 
-  _connect() {
+  private _connect() {
     this._state = "connecting";
     logger.debug("connecting to %s", this._url);
     this._ws = new WebSocket(this._url, {
@@ -189,12 +189,12 @@ class Subscription extends event.EventEmitter {
     this._ws.on("pong", (data, flags) => this._onPong(data));
   }
 
-  _onWsError(err: Error) {
+  private _onWsError(err: Error) {
     logger.error("umq on websocket error %s", err.message);
     this.emit("error", err);
   }
 
-  _onData(data: Buffer) {
+  private _onData(data: Buffer) {
     let b = data.toString("utf8");
     logger.debug("umq on server data %s", b);
     try {
@@ -206,7 +206,7 @@ class Subscription extends event.EventEmitter {
     }
   }
 
-  _onClosed(code: number) {
+  private _onClosed(code: number) {
     if (this._state === "closed") {
       return;
     }
@@ -216,18 +216,18 @@ class Subscription extends event.EventEmitter {
     this._reconnect();
   }
 
-  _onWsConnected() {
+  private _onWsConnected() {
     logger.info("umq client connected");
     this._state = "connected";
     this._retryTimes = 0;
     this._retryDuration = 1;
   }
 
-  _onPong(data: Buffer) {
+  private _onPong(data: Buffer) {
 
   }
 
-  _reconnect() {
+  private _reconnect() {
     if (this._state == "closed") {
       return;
     }

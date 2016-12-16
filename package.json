@@ -3,7 +3,9 @@
   "version": "0.2.0",
   "description": "umq的javascript sdk",
   "main": "./lib/index.js",
+  "types": "./lib/index",
   "scripts": {
+    "prepublish": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
