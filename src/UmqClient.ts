@@ -1,15 +1,13 @@
-import * as request from "request";
 import * as http from 'http';
 import * as WebSocket from 'ws';
 import * as event from 'events';
 import * as urlparse from 'url';
-import {logger} from './logger';
+import * as request from "./request"
+import { logger } from './logger';
 
 export type MessageId = string;
 
-export type UmqClientConfig = {
-  timeout: number,
-  host: string,
+export interface UmqClientConfig extends request.RequestOpt {
   projectId: string,
 }
 
@@ -17,33 +15,17 @@ enum UmqRequestErrorCode {
   HttpError = 0,
 }
 
-export class UmqRequestError extends Error {
-  message: string;
-  _code: number;
-
-  constructor(code: number, message: string) {
-    super()
-    this._code = code;
-    this.message = message
-  }
-
-  get code() {
-    return this._code;
-  }
-}
 
 export class UmqClient {
   _projectId: string;
   _host: string;
-  _r : request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>;
+  _r: request.RequestWrapper;
 
   constructor(config: UmqClientConfig) {
     this._projectId = config.projectId;
     this._host = config.host;
-    this._r = request.defaults({
-      baseUrl: config.host,
-      timeout: config.timeout || 10*1000,
-    })
+    this._r = new request.RequestWrapper(config);
+
   }
 
   createProducer(producerId: string, producerToken: string): Producer {
@@ -60,122 +42,110 @@ export class UmqClient {
     }
     let u = urlparse.parse(this._host);
     u.protocol = "ws:"
-    u.query = {permits: prefetchCount};
+    u.query = { permits: prefetchCount };
     u.pathname = u.path + this._projectId + '/' + topic + '/message/subscription';
     let url = urlparse.format(u)
     let authToken = consumerId + ':' + consumerToken;
-    return new Subscription(url, this._r, this._projectId, topic,  authToken, prefetchCount);
+    return new Subscription(url, this._r, this._projectId, topic, authToken, prefetchCount);
   }
 }
 
 class Producer {
   _authToken: string;
   _projectId: string;
-  _r : request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>;
+  _r: request.RequestWrapper;
 
-  constructor(r: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>, 
+  constructor(r: request.RequestWrapper,
     projectId: string, producerId: string, producerToken: string) {
-    this._authToken = producerId+":"+producerToken;
+    this._authToken = producerId + ":" + producerToken;
     this._r = r;
     this._projectId = projectId;
   }
 
-  publishMessage(topic: string, message: Buffer|string): Promise<MessageId> {
-    return new Promise<MessageId>((resolv, reject) => {
-      this._r.post(this._projectId+"/"+topic+"/message", {
-        headers: {Authorization: this._authToken},
-        body: message,
-      }, (error: any, response: http.IncomingMessage, body: any) => {
-        if (error) {
-          return reject(new UmqRequestError(UmqRequestErrorCode.HttpError, error.message))
-        }
-        if (response.statusCode == 200) {
-          return resolv(body);
-        } else {
-          return reject(new UmqRequestError(response.statusCode, body))
-        }
-      })
-    })
+  publishMessage(topic: string, message: Buffer | string): Promise<MessageId> {
+    return this._r.post(this._projectId + "/" + topic + "/message", {
+      headers: { Authorization: this._authToken },
+      body: message,
+    }).then((body: any) => {
+      if (typeof body === 'string') {
+        body = JSON.parse(body)
+      }
+      return body["MessageID"];
+    });
   }
 }
 
-interface Message {
+export interface Message {
   messageID: MessageId,
   content: string,
 }
 
-function ackMessage(r: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>, 
+function ackMessage(r: request.RequestWrapper,
   projectId: string, topic: string, messageIds: string[], authToken: string): Promise<void> {
-  return new Promise<void>((resolv, reject) => {
-    let uri = projectId+"/"+topic+"/message";
-    r.del(uri, {
-      headers: {Authorization: authToken},
-      body: JSON.stringify({MessageID: messageIds}), 
-    }, (error: any, response: http.IncomingMessage, body: any) => {
-        if (error) {
-          return reject(new UmqRequestError(UmqRequestErrorCode.HttpError, error.message))
-        }
-        if (response.statusCode == 200) {
-          return resolv();
-        } else {
-          return reject(new UmqRequestError(response.statusCode, body))
-        }
-    })
-  })
-
+    return r.del(projectId + "/" + topic + "/message", {
+      headers: { Authorization: authToken },
+      body: JSON.stringify({ MessageID: messageIds })
+    }).then((body: any) => {
+      return;
+    });
 }
 
 class Consumer {
-  _r: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>;
+  _r: request.RequestWrapper;
   _projectId: string;
   _authToken: string;
 
-  constructor(r : request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>, 
+  constructor(r: request.RequestWrapper,
     host: string, projectId: string, consumerId: string, consumerToken: string) {
     this._r = r;
     this._projectId = projectId;
-    this._authToken = consumerId+":"+consumerToken;
+    this._authToken = consumerId + ":" + consumerToken;
   }
 
-  getMessage(topic: string, count ?: string): Promise<Message[]> {
-    return new Promise<Message[]>((resolv, reject) => {
-      this._r.get(this._projectId+"/"+topic+"/message", {
-        headers: {Authorization: this._authToken}
-      }, (error: any, response: http.IncomingMessage, body: any) => {
-        if (error) {
-          return reject(new UmqRequestError(UmqRequestErrorCode.HttpError, error.message))
-        }
-        if (response.statusCode == 200) {
-          return resolv(body);
-        } else {
-          return reject(new UmqRequestError(response.statusCode, body));
-        }
-      })
-    })
+  getMessage(topic: string, count?: string, timeout?: number): Promise<Message[]> {
+    let p = this._projectId + "/" + topic + "/message";
+    if (count !== undefined) {
+      p = p + "?count=" + count;
+    } else {
+      p = p + "?count=1";
+    }
+    if (timeout !== undefined) {
+      p = p + "&timeout=" + timeout;
+    }
+    return this._r.get(p, {
+      headers: { Authorization: this._authToken },
+      
+    }).then((body: any) => {
+      if (typeof body === 'string') {
+        body = JSON.parse(body)
+      }
+      console.log(body);
+      return body.messages;
+    });
   }
 
   ackMessage(topic: string, messageIds: string[]): Promise<void> {
-    return ackMessage(this._r, this._projectId,topic, messageIds, this._authToken);
+    return ackMessage(this._r, this._projectId, topic, messageIds, this._authToken);
   }
 }
 
 type SubscriptionState = "closed" | "connecting" | "connected";
 
 class Subscription extends event.EventEmitter {
-  _r: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>;
+  _r: request.RequestWrapper;
   _url: string;
   _topic: string;
   _projectId: string;
   _authToken: string;
-  _ws : WebSocket;
+  _ws: WebSocket;
   _prefetchCount: number;
-  _state : SubscriptionState;
+  _state: SubscriptionState;
   _permits: number;
   _retryTimes: number;
   _retryDuration: number;
 
 
-  constructor(url: string, r : request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>,
+  constructor(url: string, r: request.RequestWrapper,
     projectId: string, topic: string, authToken: string, prefetchCount: number) {
     super();
     this._r = r;
@@ -205,7 +175,7 @@ class Subscription extends event.EventEmitter {
     this._state = "connecting";
     logger.debug("connecting to %s", this._url);
     this._ws = new WebSocket(this._url, {
-      headers: {Authorization: this._authToken}
+      headers: { Authorization: this._authToken }
     });
     this._prefetchCount = this._prefetchCount;
     this._ws.on('error', err => this._onWsError(err));
@@ -270,8 +240,8 @@ class Subscription extends event.EventEmitter {
       logger.info("umq client start reconnecting");
       this._ws = null;
       this._connect();
-      this._retryDuration = this._retryDuration * 2;
+      this._retryDuration = this._retryDuration * (2 ^ this._retryTimes);
       this._retryTimes++;
-    }, this._retryDuration*1000 + Math.random()*2000)
+    },  Math.min(10000, Math.random() * 200 * Math.pow(2, this._retryTimes)));
   }
 }
