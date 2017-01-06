@@ -11,6 +11,13 @@ export interface UmqClientConfig extends request.RequestOpt {
   projectId: string,
 }
 
+export interface UmqExtSettings {
+  prefetchCount?: number,
+  retryInterval?: number,
+  retryMaxCount?: number,
+  retryMaxTime?: number,
+}
+
 enum UmqRequestErrorCode {
   HttpError = 0,
 }
@@ -36,17 +43,29 @@ export class UmqClient {
     return new Consumer(this._r, this._host, this._projectId, consumerId, consumerToken);
   }
 
-  createSubscription(consumerId: string, consumerToken: string, topic: string, prefetchCount?: number) {
-    if (!prefetchCount) {
-      prefetchCount = 1;
+  createSubscription(consumerId: string, consumerToken: string, topic: string, settings?: number | UmqExtSettings) {
+    let prefetchCount: number = 1;
+    let retryInterval: number = 200;
+    let retryMaxCount: number = 8;
+    let retryMaxTime: number = 30000;
+
+    if (typeof settings === 'number') {
+      prefetchCount = settings || prefetchCount;
+    } else {
+      settings = settings || {};
+      prefetchCount = settings.prefetchCount || prefetchCount;
+      retryInterval = settings.retryInterval || retryInterval;
+      retryMaxCount = settings.retryMaxCount || retryMaxCount;
+      retryMaxTime = settings.retryMaxTime || retryMaxTime;
     }
+
     let u = urlparse.parse(this._host);
     u.protocol = "ws:"
     u.query = { permits: prefetchCount };
     u.pathname = u.path + this._projectId + '/' + topic + '/message/subscription';
     let url = urlparse.format(u)
     let authToken = consumerId + ':' + consumerToken;
-    return new Subscription(url, this._r, this._projectId, topic, authToken, prefetchCount);
+    return new Subscription(url, this._r, this._projectId, topic, authToken, prefetchCount, retryInterval, retryMaxCount, retryMaxTime);
   }
 }
 
@@ -143,10 +162,14 @@ export class Subscription extends event.EventEmitter {
   private _permits: number;
   private _retryTimes: number;
   private _retryDuration: number;
+  private _retryInterval: number;
+  private _retryMaxCount: number;
+  private _retryMaxTime: number;
 
 
   constructor(url: string, r: request.RequestWrapper,
-    projectId: string, topic: string, authToken: string, prefetchCount: number) {
+    projectId: string, topic: string, authToken: string, prefetchCount: number,
+    retryInterval: number, retryMaxCount: number, retryMaxTime: number) {
     super();
     this._r = r;
     this._projectId = projectId;
@@ -155,6 +178,9 @@ export class Subscription extends event.EventEmitter {
     this._prefetchCount = prefetchCount;
     this._retryTimes = 0;
     this._retryDuration = 1;
+    this._retryInterval = retryInterval;
+    this._retryMaxCount = retryMaxCount;
+    this._retryMaxTime = retryMaxTime;
     this._topic = topic;
     this._connect()
   }
@@ -220,7 +246,7 @@ export class Subscription extends event.EventEmitter {
     logger.info("umq client connected");
     this._state = "connected";
     this._retryTimes = 0;
-    this._retryDuration = 1;
+    this._retryDuration = 0;
   }
 
   private _onPong(data: Buffer) {
@@ -231,17 +257,18 @@ export class Subscription extends event.EventEmitter {
     if (this._state == "closed") {
       return;
     }
-    if (this._retryTimes >= 5) {
+    if (this._retryTimes >= this._retryMaxCount) {
       this.emit("error", new Error("Fail to connect to server"));
       this._state = "closed";
       return;
     }
+    let waitTime = Math.min(this._retryMaxTime, Math.random() * this._retryInterval * Math.pow(2, this._retryTimes));
     setTimeout(() => {
       logger.info("umq client start reconnecting");
       this._ws = null;
       this._connect();
-      this._retryDuration = this._retryDuration * (2 ^ this._retryTimes);
+      this._retryDuration += waitTime;
       this._retryTimes++;
-    },  Math.min(10000, Math.random() * 200 * Math.pow(2, this._retryTimes)));
+    }, waitTime);
   }
 }
